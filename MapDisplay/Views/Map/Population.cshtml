@@ -1,0 +1,627 @@
+﻿@{
+    ViewBag.Title = "Population";
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=utf-8 />
+    <title>Choropleth</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+    <script src='https://api.mapbox.com/mapbox.js/v2.2.1/mapbox.js'></script>
+    <link href='https://api.mapbox.com/mapbox.js/v2.2.1/mapbox.css' rel='stylesheet' />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            width: 800px;
+            height: 500px;
+            margin: 0 auto;
+        }
+
+        #mapIncome {
+            width: 800px;
+            height: 500px;
+            margin: 0 auto;
+        }
+
+        .info {
+            font: 14px/16px Arial, Helvetica, sans-serif;
+            background: white;
+            background: rgba(255,255,255,0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            background-color: #D2CCCC;
+            color: #6D43B3;
+            padding: 6px 20px 40px 15px;
+            text-shadow: 2px 1px #E4DBDB;
+        }
+
+            .info h4 {
+                margin: 0 0 5px;
+                color: #777;
+            }
+
+        .legend {
+            text-align: left;
+            line-height: 18px;
+            color: #555;
+        }
+
+            .legend i {
+                width: 18px;
+                height: 18px;
+                float: left;
+                margin-right: 8px;
+                opacity: 0.7;
+            }
+
+        #legend {
+            padding: 10px 0;
+            overflow: hidden;
+            font-size: 14px;
+        }
+
+        #key {
+            margin: 0;
+            clear: both;
+            float: left;
+            font-size: 12px;
+        }
+
+        .leaflet-container a {
+            color: #0078a8;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="mapContainer" style="height: auto; margin: 0px auto; width: 808px;">
+        <select id="mapChange">
+            <option value="0">View By Population</option>
+            <option value="1">View Median Income</option>
+        </select>
+        <div id='map'></div>
+        <div id='mapIncome' style="display:none;"></div>
+    </div>
+
+
+    <style>
+        .map-legend .swatch {
+            width: 20px;
+            height: 20px;
+            float: left;
+            margin-right: 10px;
+        }
+
+        .leaflet-popup-close-button {
+            display: none;
+        }
+
+        .leaflet-popup-content-wrapper {
+            pointer-events: none;
+        }
+    </style>
+    <script src='/data/us-states.js'></script>
+    <script src='/data/us-counties.js'></script>
+    <script>
+        $(document).ready(function () {
+            population();
+        });
+
+        $("#mapChange").change(function () {
+            getVal = $('#mapChange').val();
+            if (getVal == 0) {
+                $('#map').show();
+                $('#mapIncome').hide();
+                population();
+            } else {
+                $('#mapIncome').show();
+                $('#map').hide();
+                Income();
+            }
+        });
+
+
+        function population() {
+            var map = L.map('map').setView([37.8, -96], 4);
+
+            L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=pk.eyJ1IjoibW9uaWxhbCIsImEiOiI1OTY5MzQyN2ExNjFiZmNkYzUxYjQ4MWViYjY4ZjRlYSJ9.QFB8A4sak6GIVBqBwxW2IQ', {
+                maxZoom: 18,
+                zoomControl: true,
+                id: 'mapbox.light'
+            }).addTo(map);
+
+            var allPopulation = null;
+            $(document).ready(function () {
+
+                var url = "http://api.census.gov/data/2013/acs5?get=NAME,B01001_001E&for=state:*&key=541a48cd8b78df85469d66e0ceef7b6ef86295a9";
+                // Send an AJAX request
+                $.getJSON(url)
+                    .done(function (data) {
+                        // On success, 'data' contains a list of Stetes.
+                        //$.each(data, function (key, pop) {
+                        //    var population = pop.B01001_001E;
+                        //    console.log(pop);
+                        //});
+                        allPopulation = data;
+                    });
+            });
+
+            function getPopulation(state) {
+                var population = 'Population unknown';
+                var found = false;
+                $.each(allPopulation, function (key, state2) {
+                    if (state2[0] == state) {
+                        population = state2[1];
+                        //console.log(population);
+                    }
+                });
+
+                return population;
+            }
+
+            //County Population Api
+            var countyPopulation = null;
+            $(document).ready(function () {
+                var urlCounty = "http://api.census.gov/data/2013/acs5?get=NAME,B01001_001E&for=county:*&key=541a48cd8b78df85469d66e0ceef7b6ef86295a9";
+                // Send an AJAX request
+                $.getJSON(urlCounty)
+                    .done(function (data) {
+                        countyPopulation = data;
+                    });
+            });
+
+            function getCountyPopulation(state, county) {
+
+                var countyPopulation2 = 'Population unknown';
+                $.each(countyPopulation, function (key, county2) {
+                    if (county2[2] == state && county2[3] == county) {
+                        countyPopulation2 = county2[1];
+                        console.log(county);
+                    }
+                });
+
+                return countyPopulation2;
+
+            }
+            // control that shows state info on hover
+            var info = L.control();
+
+            info.onAdd = function (map) {
+                this._div = L.DomUtil.create('div', 'info');
+                this.update();
+                return this._div;
+            };
+            info.update = function (props) {
+                this._div.innerHTML = '' + (props ?
+                    '<b>' + props.name + '</b><br /><br />' + 'Population :' + getPopulation(props.name) + '<br/>'
+                    : 'Hover over a state');
+            };
+
+            info.update2 = function (props) {
+                this._div.innerHTML = '' + (props ?
+                    '<b>' + props.NAME + '</b><br /><br />' + 'Population :' + getCountyPopulation(props.STATE, props.COUNTY) + '<br/>'
+                    : 'Hover over a state');
+            };
+
+            info.addTo(map);
+
+            // get color depending on population density value
+            //function getColor(d) {
+            //    return d > '38,802,500' ? '#CC9900' :
+            //           d > '26,956,958' ? '#FF9933' :
+            //           d > "19,893,297" ? '#FF9966' :
+            //           d > "19,746,227" ? '#FF9999' :
+            //           d > "12,880,580" ? '#666633' :
+            //           d > "12,787,209" ? '#0099FF' :
+            //           d > "11,594,163" ? '#00CCFF' :
+            //           d > "10,097,343" ? '#33CCCC' :
+            //           d > "9,943,964" ? '#009999' :
+            //           d > "9,909,877" ? '#669999' :
+            //           d > "8,938,175" ? '#006666' :
+            //           d > "8,326,289" ? '#0099CC' :
+            //           d > "10,097,343" ? '#FFCCFF' :
+            //           d > "7,061,530" ? '#9999FF' :
+            //           d > "6,745,408" ? '#6699FF' :
+            //           d > "6,596,855" ? '#9933FF' :
+            //           d > "6,549,352" ? '#6600FF' :
+            //           d > "6,063,589" ? '#00FF99' :
+            //           d > "5,976,407" ? '#99FFCC' :
+            //           d > "5,757,564" ? '#CCFF99' :
+            //           d > "5,457,173" ? '#CCCC00' :
+            //           d > "5,355,866" ? '#66FF66' :
+            //           d > "4,849,377" ? '#FF3399' :
+            //           d > "4,832,482" ? '#993366' :
+            //           d > "4,649,676" ? '#660066' :
+            //           d > "4,413,457" ? '#CC00FF' :
+            //           d > "3,970,239" ? '#FF6666' :
+            //           d > "3,878,051" ? '#FFCC99' :
+            //           d > "3,548,397" ? '#FF6600' :
+            //           d > "3,596,677" ? '#663300' :
+            //           d > "3,107,126" ? '#CC6600' :
+            //           d > "2,994,079" ? '#FED976' :
+            //           d > "2,966,369" ? '#FED976' :
+            //           d > "2,942,902" ? '#FED176' :
+            //           d > "2,904,021" ? '#FED276' :
+            //           d > "2,839,098" ? '#FED376' :
+            //           d > "2,085,572" ? '#FED476' :
+            //           d > "1,881,503" ? '#FED576' :
+            //           d > "1,850,326" ? '#FED676' :
+            //           d > "1,634,464" ? '#FED776' :
+            //           d > "1,419,561" ? '#FED876' :
+            //           d > "1,330,089" ? '#FED976' :
+            //           d > "1,326,813" ? '#FED176' :
+            //           d > "1,055,173" ? '#FED276' :
+            //           d > "1,023,579" ? '#FED376' :
+            //           d > "935,614" ? '#FED976' :
+            //           d > "853,175" ? '#FED976' :
+            //           d > "739,482" ? '#FF9933' :
+            //           d > "736,732" ? '#FED976' :
+            //           d > "658,893" ? '#FED976' :
+            //           d > "626,562" ? '#FED976' :
+            //                                '#990000';
+            //}
+
+
+            function getColor(d) {
+                return d > "Utah" ? '#5F9EA0' :
+                       d > "Texas" ? '#000080' :
+                       d > "Arizona" ? '#DEB887' :
+                       d > "Arkansas" ? '#5F9EA0' :
+                       d > "Colorado" ? '#7FFF00' :
+                       d > "Connecticut" ? '#D2691E' :
+                       d > "Delaware" ? '#FF7F50' :
+                       d > "District of Columbia" ? '#6495ED' :
+                       d > "Florida" ? '#DC143C' :
+                       d > "Georgia" ? '#00FFFF' :
+                       d > "Hawaii" ? '#00008B' :
+                       d > "Idaho" ? '#008B8B' :
+                       d > "Illinois" ? '#B8860B' :
+                       d > "Washington" ? '#A9A9A9' :
+                       d > "Indiana" ? '#006400' :
+                       d > "Iowa" ? '#BDB76B' :
+                       d > "Kansas" ? '#8B008B' :
+                       d > "Kentucky" ? '#556B2F' :
+                       d > "Louisiana" ? '#FF8C00' :
+                       d > "Maine" ? '#DEB887' :
+                       d > "Maryland" ? '#E9967A' :
+                       d > "5,355,866" ? '#8FBC8F' :
+                       d > "Alabama" ? '#483D8B' :
+                       d > "4,832,482" ? '#2F4F4F' :
+                       d > "Ohio" ? '#00CED1' :
+                       d > "4,413,457" ? '#9400D3' :
+                       d > "Oregon" ? '#FF1493' :
+                       d > "3,878,051" ? '#696969' :
+                       d > "3,548,397" ? '#1E90FF' :
+                       d > "Wisconsin" ? '#B22222' :
+                       d > "3,107,126" ? '#228B22' :
+                       d > "Nevada" ? '#20B2AA' :
+                       d > "Montana" ? '#FFD700' :
+                       d > "2,942,902" ? '#DAA520' :
+                       d > "Illinois" ? '#808080' :
+                       d > "2,839,098" ? '#008000' :
+                       d > "New Mexico" ? '#7B68EE' :
+                       d > "1,881,503" ? '#FF69B4' :
+                       d > "Wyoming" ? '#CD5C5C' :
+                       d > "New York" ? '#4B0082' :
+                       d > "1,419,561" ? '#F0E68C' :
+                       d > "Massachusetts" ? '#E6E6FA' :
+                       d > "Virginia" ? '#ADD8E6' :
+                       d > "1,055,173" ? '#F08080' :
+                       d > "Tennessee" ? '#20B2AA' :
+                       d > "935,614" ? '#87CEFA' :
+                       d > "South Dakota" ? '#66CDAA' :
+                       d > "North Dakota" ? '#66CDAA' :
+                       d > "Nebraska" ? '#FFE4E1' :
+                       d > "658,893" ? '#FFDEAD' :
+                       d > "Puerto Rico" ? '#FFE4E1' :
+                                            "#6B8E23";
+            }
+
+            function style(feature) {
+                return {
+                    weight: 2,
+                    opacity: 1,
+                    color: 'white',
+                    dashArray: '3',
+                    fillOpacity: 0.7,
+                    fillColor: getColor(feature.properties.density)
+                };
+            }
+
+            function highlightFeature(e) {
+                var layer = e.target;
+
+                layer.setStyle({
+                    weight: 5,
+                    color: '#666',
+                    dashArray: '',
+                    fillOpacity: 0.7
+                });
+
+                if (!L.Browser.ie && !L.Browser.opera) {
+                    layer.bringToFront();
+                }
+
+                info.update(layer.feature.properties);
+                var income = layer.feature.properties.income;
+            }
+
+            var geojson;
+            var countyLayer = null;
+            function resetHighlight(e) {
+                geojson.resetStyle(e.target);
+                info.update();
+            }
+
+            function zoomToFeature(e) {
+                map.fitBounds(e.target.getBounds());
+
+                if (countyLayer === null) {
+
+                    countyLayer = L.mapbox.featureLayer()
+                    .loadURL('/Data/counties.json').addTo(map);
+
+                }
+
+                countyLayer.setFilter(function (f) {
+                    return f.properties["STATE"] === e.target.feature.id;
+                });
+
+                countyLayer.on("mouseover", function (et) {
+                    info.update2(et.layer.feature.properties);
+                    //console.log(et.layer.feature.properties);
+                });
+                // var stateID = e.target.feature.id;
+            }
+
+            function onEachFeature(feature, layer) {
+                layer.on({
+                    mouseover: highlightFeature,
+                    mouseout: resetHighlight,
+                    click: zoomToFeature
+                });
+            }
+
+            geojson = L.geoJson(statesData, {
+                style: style,
+                onEachFeature: onEachFeature
+            }).addTo(map);
+
+            map.attributionControl.addAttribution();
+
+            var legend = L.control({ position: 'bottomright' });
+
+            legend.onAdd = function (map) {
+
+                var div = L.DomUtil.create('div', 'info legend'),
+                    grades = ["38,802,500", "26,956,958", "19,893,297", "19,746,227", "12,880,580", "12,787,209", "11,594,163", "10,097,343", "9,943,964", "9,909,877", "8,938,175", "8,326,289", "10,097,343", "7,061,530", "6,745,408", "6,596,855", "6,549,352", "6,063,589", "5,976,407", "5,757,564", "5,457,173", "5,355,866", "4,849,377", "4,832,482", "4,649,676", "4,413,457", "3,970,239", "3,878,051", "3,548,397", "3,596,677", "3,107,126", "2,994,079", "2,966,369", "2,942,902", "2,904,021", "2,839,098", "2,085,572", "1,881,503", "1,850,326", "1,634,464", "1,419,561", "1,330,089", "1,326,813", "1,055,173", "1,023,579", "935,614", "853,175", "739,482", "736,732", "658,893", "626,562"],
+                    labels = [],
+                    from, to;
+
+                for (var i = 0; i < grades.length; i++) {
+                    from = grades[i];
+                    to = grades[i + 1];
+
+                }
+                div.innerHTML = labels.join('<br>');
+                return div;
+            };
+            legend.addTo(map);
+        }
+
+
+
+        function Income() {
+            var map = L.map('mapIncome').setView([37.8, -96], 4);
+
+            L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=pk.eyJ1IjoibW9uaWxhbCIsImEiOiI1OTY5MzQyN2ExNjFiZmNkYzUxYjQ4MWViYjY4ZjRlYSJ9.QFB8A4sak6GIVBqBwxW2IQ', {
+                maxZoom: 18,
+                id: 'mapbox.light'
+            }).addTo(map);
+
+            var allIncome = null;
+            $(document).ready(function () {
+                var url = "http://api.census.gov/data/2013/acs5?get=NAME,B25070_003E&for=state:*&key=541a48cd8b78df85469d66e0ceef7b6ef86295a9";
+                // Send an AJAX request
+                $.getJSON(url)
+                    .done(function (data) {
+                        allIncome = data;
+                    });
+            });
+
+            function getIncome(state) {
+                var population = 'Income unknown';
+                var found = false;
+                $.each(allIncome, function (key, state2) {
+                    if (state2[0] == state) {
+                        population = state2[1];
+                        //console.log(population);
+                    }
+                });
+
+                return population;
+            }
+
+            // control that shows state info on hover
+            var info = L.control();
+
+            info.onAdd = function (map) {
+                this._div = L.DomUtil.create('div', 'info');
+                this.update();
+                return this._div;
+            };
+            /*info.update = function (props) {
+                this._div.innerHTML = '' + (props ?
+                    '<b>' + props.name + '</b><br />' + 'Income :' + props.income + '<br/>'
+                    : 'Hover over a state');
+            };
+			*/
+            info.update = function (props) {
+                this._div.innerHTML = '' + (props ?
+                    '<b>' + props.name + '</b><br /><br />' + 'Income $' + getIncome(props.name) + '<br/>'
+                    : 'Hover over a state');
+            };
+
+            info.update2 = function (props) {
+                this._div.innerHTML = '' + (props ?
+                    '<b>' + props.NAME + '</b><br /><br />' + 'Income :' + props.INCOME + '<br/>'
+                    : 'Hover over a state');
+            };
+            info.addTo(map);
+
+            function getColor(d) {
+                return d > "Utah" ? '#5F9EA0' :
+                       d > "Texas" ? '#000080' :
+                       d > "Arizona" ? '#DEB887' :
+                       d > "Arkansas" ? '#5F9EA0' :
+                       d > "Colorado" ? '#7FFF00' :
+                       d > "Connecticut" ? '#D2691E' :
+                       d > "Delaware" ? '#FF7F50' :
+                       d > "District of Columbia" ? '#6495ED' :
+                       d > "Florida" ? '#DC143C' :
+                       d > "Georgia" ? '#00FFFF' :
+                       d > "Hawaii" ? '#00008B' :
+                       d > "Idaho" ? '#008B8B' :
+                       d > "Illinois" ? '#B8860B' :
+                       d > "Washington" ? '#A9A9A9' :
+                       d > "Indiana" ? '#006400' :
+                       d > "Iowa" ? '#BDB76B' :
+                       d > "Kansas" ? '#8B008B' :
+                       d > "Kentucky" ? '#556B2F' :
+                       d > "Louisiana" ? '#FF8C00' :
+                       d > "Maine" ? '#DEB887' :
+                       d > "Maryland" ? '#E9967A' :
+                       d > "5,355,866" ? '#8FBC8F' :
+                       d > "Alabama" ? '#483D8B' :
+                       d > "4,832,482" ? '#2F4F4F' :
+                       d > "Ohio" ? '#00CED1' :
+                       d > "4,413,457" ? '#9400D3' :
+                       d > "Oregon" ? '#FF1493' :
+                       d > "3,878,051" ? '#696969' :
+                       d > "3,548,397" ? '#1E90FF' :
+                       d > "Wisconsin" ? '#B22222' :
+                       d > "3,107,126" ? '#228B22' :
+                       d > "Nevada" ? '#20B2AA' :
+                       d > "Montana" ? '#FFD700' :
+                       d > "2,942,902" ? '#DAA520' :
+                       d > "Illinois" ? '#808080' :
+                       d > "2,839,098" ? '#008000' :
+                       d > "New Mexico" ? '#7B68EE' :
+                       d > "1,881,503" ? '#FF69B4' :
+                       d > "Wyoming" ? '#CD5C5C' :
+                       d > "New York" ? '#4B0082' :
+                       d > "1,419,561" ? '#F0E68C' :
+                       d > "Massachusetts" ? '#E6E6FA' :
+                       d > "Virginia" ? '#ADD8E6' :
+                       d > "1,055,173" ? '#F08080' :
+                       d > "Tennessee" ? '#20B2AA' :
+                       d > "935,614" ? '#87CEFA' :
+                       d > "South Dakota" ? '#66CDAA' :
+                       d > "North Dakota" ? '#66CDAA' :
+                       d > "Nebraska" ? '#FFE4E1' :
+                       d > "658,893" ? '#FFDEAD' :
+                       d > "Puerto Rico" ? '#FFE4E1' :
+                                            "#6B8E23";
+            }
+
+            function style(feature) {
+                return {
+                    weight: 2,
+                    opacity: 1,
+                    color: 'white',
+                    dashArray: '3',
+                    fillOpacity: 0.7,
+                    fillColor: getColor(feature.properties.density)
+                };
+            }
+
+            function highlightFeature(e) {
+                var layer = e.target;
+
+                layer.setStyle({
+                    weight: 5,
+                    color: '#666',
+                    dashArray: '',
+                    fillOpacity: 0.7
+                });
+
+                if (!L.Browser.ie && !L.Browser.opera) {
+                    layer.bringToFront();
+                }
+
+                info.update(layer.feature.properties);
+                var income = layer.feature.properties.income;
+            }
+
+            var geojson;
+            var countyLayer = null;
+            function resetHighlight(e) {
+                geojson.resetStyle(e.target);
+                info.update();
+            }
+
+            function zoomToFeature(e) {
+                map.fitBounds(e.target.getBounds());
+
+                if (countyLayer === null) {
+
+                    countyLayer = L.mapbox.featureLayer()
+                    .loadURL('/Data/counties.json').addTo(map);
+
+                }
+
+                countyLayer.setFilter(function (f) {
+                    return f.properties["STATE"] === e.target.feature.id;
+                });
+
+                countyLayer.on("mouseover", function (et) {
+                    info.update2(et.layer.feature.properties);
+                    //console.log(et.layer.feature.properties);
+                });
+                // var stateID = e.target.feature.id;
+            }
+
+            function onEachFeature(feature, layer) {
+                layer.on({
+                    mouseover: highlightFeature,
+                    mouseout: resetHighlight,
+                    click: zoomToFeature
+                });
+            }
+
+            geojson = L.geoJson(statesData, {
+                style: style,
+                onEachFeature: onEachFeature
+            }).addTo(map);
+
+            map.attributionControl.addAttribution();
+
+            var legend = L.control({ position: 'bottomright' });
+
+            legend.onAdd = function (map) {
+
+                var div = L.DomUtil.create('div', 'info legend'),
+                    grades = ["38,802,500", "26,956,958", "19,893,297", "19,746,227", "12,880,580", "12,787,209", "11,594,163", "10,097,343", "9,943,964", "9,909,877", "8,938,175", "8,326,289", "10,097,343", "7,061,530", "6,745,408", "6,596,855", "6,549,352", "6,063,589", "5,976,407", "5,757,564", "5,457,173", "5,355,866", "4,849,377", "4,832,482", "4,649,676", "4,413,457", "3,970,239", "3,878,051", "3,548,397", "3,596,677", "3,107,126", "2,994,079", "2,966,369", "2,942,902", "2,904,021", "2,839,098", "2,085,572", "1,881,503", "1,850,326", "1,634,464", "1,419,561", "1,330,089", "1,326,813", "1,055,173", "1,023,579", "935,614", "853,175", "739,482", "736,732", "658,893", "626,562"],
+                    labels = [],
+                    from, to;
+
+                for (var i = 0; i < grades.length; i++) {
+                    from = grades[i];
+                    to = grades[i + 1];
+
+                }
+                div.innerHTML = labels.join('<br>');
+                return div;
+            };
+            legend.addTo(map);
+        }
+
+    </script>
+</body>
+</html>
